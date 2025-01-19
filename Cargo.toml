@@ -4,6 +4,7 @@ members = [
     "common",
     "ilia-drun"
 , "ilia-windows"]
+resolver = "2"
 
 [workspace.dependencies]
 common = { path = "common" }

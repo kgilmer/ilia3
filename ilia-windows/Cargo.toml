@@ -5,3 +5,8 @@ edition = "2021"
 
 [dependencies]
 common.workspace = true
+swayipc = "3.0.3"
+anyhow.workspace = true
+iced.workspace = true
+iced_core.workspace = true
+iced_runtime.workspace = true

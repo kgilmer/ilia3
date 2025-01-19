@@ -4,7 +4,8 @@ use std::sync::LazyLock;
 use iced::widget::button::{primary, text};
 use iced::widget::scrollable::{snap_to, RelativeOffset};
 use iced::widget::{button, column, scrollable, text_input, Column};
-use iced::{event, window, Element, Event, Length, Task};
+use iced::window::settings::PlatformSpecific;
+use iced::{event, window, Element, Event, Font, Length, Pixels, Settings, Size, Task};
 use iced_core::keyboard::key::Named;
 use iced_core::keyboard::Key;
 use iced_runtime::futures::MaybeSend;
@@ -19,7 +20,7 @@ static ITEMS_WIDGET_ID: LazyLock<iced::widget::scrollable::Id> =
 
 pub trait ItemDescriptor {
     fn title(&self) -> &str;
-    fn exec(&self) -> &str;
+    fn exec(&self) -> anyhow::Result<()>;
 }
 
 /// The application model type.  See [the iced book](https://book.iced.rs/) for details.
@@ -66,13 +67,10 @@ pub struct IliaConfiguration<T: MaybeSend> {
      * A function that returns the list of Items
      */
     pub item_loader: fn() -> Vec<T>,
-    /**
-     * A function that performs the primary action from a `ItemDescriptor`
-     */
-    pub primary_action: fn(&T) -> anyhow::Result<()>, //TODO ~ return a task that exits app
+    pub entry_hint: String,
 }
 
-impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
+impl<T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
     pub fn new(flags: IliaConfiguration<T>) -> (Self, Task<IliaMessage<T>>) {
         (
             Self {
@@ -119,7 +117,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
         // Bare bones!
         // TODO: Fancier layout?
         column![
-            text_input("drun", &self.state.entry)
+            text_input(&self.flags.entry_hint, &self.state.entry)
                 .id(ENTRY_WIDGET_ID.clone())
                 .on_input(IliaMessage::EntryUpdate)
                 .width(320),
@@ -148,7 +146,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
             // Launch an application selected by the user
             IliaMessage::ExecuteSelected() => {
                 if let Some(entry) = self.selected_entry() {
-                    (self.flags.primary_action)(entry).expect("Failed to launch app");
+                    entry.exec().expect("Failed to launch app");
                 }
                 Task::none()
             }
@@ -159,7 +157,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
                 Key::Named(Named::ArrowDown) => self.navigate_items(1),
                 Key::Named(Named::Enter) => {
                     if let Some(entry) = self.selected_entry() {
-                        (self.flags.primary_action)(entry).expect("Failed to launch app");
+                        entry.exec().expect("Failed to launch app");
                     }
                     Task::none()
                 }
@@ -233,17 +231,43 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
 
     // Compute the items in the list to display based on the model
     fn text_entry_filter(entry: &T, model: &State<T>) -> bool {
-        entry.title().to_lowercase().contains(&model.entry.to_lowercase())
+        entry
+            .title()
+            .to_lowercase()
+            .contains(&model.entry.to_lowercase())
     }
 }
 
+// Create iced settings from input
+pub fn iced_settings(program_name: &str) -> Settings {
+    iced::settings::Settings {
+        id: Some(program_name.to_string()),
+        fonts: vec![],
+        default_font: Font::DEFAULT,
+        default_text_size: Pixels::from(18),
+        antialiasing: true,
+    }
+}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {        
-        assert_eq!(true, true);
+pub fn window_settings(program_name: &str) -> window::Settings {
+    window::Settings {
+        size: Size {
+            width: 320.0,
+            height: 200.0,
+        },
+        position: window::Position::Centered,
+        min_size: None,
+        max_size: None,
+        visible: true,
+        resizable: false,
+        decorations: false,
+        transparent: false,
+        level: Default::default(),
+        icon: None,
+        platform_specific: PlatformSpecific {
+            application_id: program_name.to_string(),
+            override_redirect: false,
+        },
+        exit_on_close_request: true,
     }
 }
