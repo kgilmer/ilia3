@@ -27,7 +27,7 @@ pub trait ItemDescriptor {
 pub struct State<T: MaybeSend + ItemDescriptor> {
     /// A text entry box where a user can enter list filter criteria
     entry: String,
-    /// The complete list of DesktopEntry, as retrieved by lib
+    /// The complete list of ItemDescriptor, as retrieved by lib
     apps: Vec<T>,
     /// The index of the item visibly selected in the UI
     selected_index: usize,
@@ -37,19 +37,19 @@ pub struct State<T: MaybeSend + ItemDescriptor> {
 
 /// Root struct of application
 #[derive(Debug)]
-pub struct Elbey<T: MaybeSend + ItemDescriptor> {
+pub struct Ilia<T: MaybeSend + ItemDescriptor> {
     state: State<T>,
-    flags: ElbeyFlags<T>,
+    flags: IliaConfiguration<T>,
 }
 
 /// Messages are how your logic mutates the app state and GUI
 #[derive(Debug, Clone)]
-pub enum ElbeyMessage<T: MaybeSend> {
-    /// Signals that the `DesktopEntries` have been fully loaded into the vec
+pub enum IliaMessage<T: MaybeSend> {
+    /// Signals that the `ItemDescriptor` have been fully loaded into the vec
     ModelLoaded(Vec<T>),
     /// Signals that the primary text edit box on the UI has been changed by the user, including the new text.
     EntryUpdate(String),
-    /// Signals that the user has taken primary action on a selection.  In the case of a desktop app launcher, the app is launched.
+    /// Signals that the user has taken primary action on a selection.
     ExecuteSelected(),
     /// Signals that the user has pressed a key
     KeyEvent(Key),
@@ -61,22 +61,19 @@ pub enum ElbeyMessage<T: MaybeSend> {
 
 /// Provide some initial configuration to app to facilitate testing
 #[derive(Debug, Clone)]
-pub struct ElbeyFlags<T: MaybeSend> {
+pub struct IliaConfiguration<T: MaybeSend> {
     /**
-     * A function that returns a list of `DesktopEntry`s
+     * A function that returns the list of Items
      */
-    pub apps_loader: fn() -> Vec<T>,
+    pub item_loader: fn() -> Vec<T>,
     /**
-     * A function that launches a process from a `DesktopEntry`
+     * A function that performs the primary action from a `ItemDescriptor`
      */
-    pub app_launcher: fn(&T) -> anyhow::Result<()>, //TODO ~ return a task that exits app
+    pub primary_action: fn(&T) -> anyhow::Result<()>, //TODO ~ return a task that exits app
 }
 
-impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
-    /// Initialize the app.  Only notable item here is probably the return type Task<ElbeyMessage> and what we pass
-    /// back.  Here, within the async execution, we directly call the library to retrieve `DesktopEntry`'s which
-    /// are the primary model of the [XDG Desktop Specification](https://www.freedesktop.org/wiki/Specifications/desktop-entry-spec/).
-    pub fn new(flags: ElbeyFlags<T>) -> (Self, Task<ElbeyMessage<T>>) {
+impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Ilia<T> {
+    pub fn new(flags: IliaConfiguration<T>) -> (Self, Task<IliaMessage<T>>) {
         (
             Self {
                 state: State {
@@ -88,15 +85,15 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
                 flags: flags.clone(),
             },
             Task::perform(async {}, move |_| {
-                ElbeyMessage::ModelLoaded((flags.apps_loader)())
+                IliaMessage::ModelLoaded((flags.item_loader)())
             }),
         )
     }
 
-    /// Entry-point from `iced`` into app to construct UI
-    pub fn view(&self) -> Element<'_, ElbeyMessage<T>> {
-        // Create the list UI elements based on the `DesktopEntry` model
-        let app_elements: Vec<Element<ElbeyMessage<T>>> = self
+    /// Entry-point from `iced` into app to construct UI
+    pub fn view(&self) -> Element<'_, IliaMessage<T>> {
+        // Create the list UI elements based on the `ItemDescriptor` model
+        let app_elements: Vec<Element<IliaMessage<T>>> = self
             .state
             .apps
             .iter()
@@ -114,7 +111,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
                         }
                     })
                     .width(Length::Fill)
-                    .on_press(ElbeyMessage::ExecuteSelected())
+                    .on_press(IliaMessage::ExecuteSelected())
                     .into()
             })
             .collect();
@@ -124,7 +121,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
         column![
             text_input("drun", &self.state.entry)
                 .id(ENTRY_WIDGET_ID.clone())
-                .on_input(ElbeyMessage::EntryUpdate)
+                .on_input(IliaMessage::EntryUpdate)
                 .width(320),
             scrollable(Column::with_children(app_elements))
                 .width(320)
@@ -134,46 +131,46 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
     }
 
     /// Entry-point from `iced` to handle user and system events
-    pub fn update(&mut self, message: ElbeyMessage<T>) -> Task<ElbeyMessage<T>> {
+    pub fn update(&mut self, message: IliaMessage<T>) -> Task<IliaMessage<T>> {
         match message {
             // The model has been loaded, initialize the UI
-            ElbeyMessage::ModelLoaded(items) => {
+            IliaMessage::ModelLoaded(items) => {
                 self.state.apps = items;
-                text_input::focus::<ElbeyMessage<T>>(ENTRY_WIDGET_ID.clone())
+                text_input::focus::<IliaMessage<T>>(ENTRY_WIDGET_ID.clone())
             }
             // Rebuild the select list based on the updated text entry
-            ElbeyMessage::EntryUpdate(entry_text) => {
+            IliaMessage::EntryUpdate(entry_text) => {
                 self.state.entry = entry_text;
                 self.state.selected_index = 0;
 
                 Task::none()
             }
             // Launch an application selected by the user
-            ElbeyMessage::ExecuteSelected() => {
+            IliaMessage::ExecuteSelected() => {
                 if let Some(entry) = self.selected_entry() {
-                    (self.flags.app_launcher)(entry).expect("Failed to launch app");
+                    (self.flags.primary_action)(entry).expect("Failed to launch app");
                 }
                 Task::none()
             }
             // Handle keyboard entries
-            ElbeyMessage::KeyEvent(key) => match key {
+            IliaMessage::KeyEvent(key) => match key {
                 Key::Named(Named::Escape) => exit(0),
                 Key::Named(Named::ArrowUp) => self.navigate_items(-1),
                 Key::Named(Named::ArrowDown) => self.navigate_items(1),
                 Key::Named(Named::Enter) => {
                     if let Some(entry) = self.selected_entry() {
-                        (self.flags.app_launcher)(entry).expect("Failed to launch app");
+                        (self.flags.primary_action)(entry).expect("Failed to launch app");
                     }
                     Task::none()
                 }
                 _ => Task::none(),
             },
             // Handle window events
-            ElbeyMessage::GainedFocus => {
+            IliaMessage::GainedFocus => {
                 self.state.received_focus = true;
                 Task::none()
             }
-            ElbeyMessage::LostFocus => {
+            IliaMessage::LostFocus => {
                 if self.state.received_focus {
                     exit(0);
                 }
@@ -183,11 +180,11 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
     }
 
     /// The `iced` entry-point to setup event listeners
-    pub fn subscription(&self) -> iced::Subscription<ElbeyMessage<T>> {
+    pub fn subscription(&self) -> iced::Subscription<IliaMessage<T>> {
         // Framework code to integrate with underlying user interface devices; keyboard, mouse.
         event::listen_with(|event, _status, _| match event {
-            Event::Window(window::Event::Focused) => Some(ElbeyMessage::GainedFocus),
-            Event::Window(window::Event::Unfocused) => Some(ElbeyMessage::LostFocus),
+            Event::Window(window::Event::Focused) => Some(IliaMessage::GainedFocus),
+            Event::Window(window::Event::Unfocused) => Some(IliaMessage::LostFocus),
             Event::Keyboard(iced::keyboard::Event::KeyPressed {
                 modifiers: _,
                 text: _,
@@ -195,7 +192,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
                 location: _,
                 modified_key: _,
                 physical_key: _,
-            }) => Some(ElbeyMessage::KeyEvent(key)),
+            }) => Some(IliaMessage::KeyEvent(key)),
             _ => None,
         })
     }
@@ -210,7 +207,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
     }
 
     // Change the selected item and update the UI with the returned `Task`
-    fn navigate_items(&mut self, delta: i32) -> iced::Task<ElbeyMessage<T>> {
+    fn navigate_items(&mut self, delta: i32) -> iced::Task<IliaMessage<T>> {
         let new_index = (self.state.selected_index as i32 + delta) as usize;
         let size = self
             .state
@@ -222,7 +219,7 @@ impl <T: MaybeSend + Clone + ItemDescriptor + 'static> Elbey<T> {
         if (0..size).contains(&new_index) {
             self.state.selected_index = new_index;
 
-            snap_to::<ElbeyMessage<T>>(
+            snap_to::<IliaMessage<T>>(
                 ITEMS_WIDGET_ID.clone(),
                 RelativeOffset {
                     x: 0.0,

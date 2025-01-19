@@ -1,6 +1,6 @@
-//! Elbey - a bare bones desktop app launcher
-#![doc(html_logo_url = "https://github.com/kgilmer/elbey/blob/main/elbey.svg")]
-use common::{Elbey, ElbeyFlags, ItemDescriptor};
+//! Ilia - a bare bones desktop app launcher
+#![doc(html_logo_url = "https://github.com/kgilmer/Ilia/blob/main/Ilia.svg")]
+use common::{Ilia, IliaConfiguration, ItemDescriptor};
 use std::process::exit;
 use std::sync::LazyLock;
 
@@ -10,7 +10,7 @@ use iced::window;
 use iced::{window::settings::PlatformSpecific, Theme};
 use iced_core::{Font, Pixels, Size};
 
-static PROGRAM_NAME: LazyLock<String> = std::sync::LazyLock::new(|| String::from("Elbey"));
+static PROGRAM_NAME: LazyLock<String> = std::sync::LazyLock::new(|| String::from("ilia-drun"));
 
 #[derive(Debug, Clone)]
 struct Item {
@@ -68,18 +68,18 @@ fn main() -> iced::Result {
 
     // A function that returns the app struct
     let app_factory = || {
-        Elbey::new(ElbeyFlags {
-            apps_loader: load_apps,
-            app_launcher: launch_app,
+        Ilia::new(IliaConfiguration {
+            item_loader: load_apps,
+            primary_action: launch_app,
         })
     };
 
     // Kick off iced GUI
-    iced::application(PROGRAM_NAME.as_str(), Elbey::update, Elbey::view)
+    iced::application(PROGRAM_NAME.as_str(), Ilia::update, Ilia::view)
         .settings(iced_settings)
         .window(window_settings)
         .theme(|_| Theme::Nord)
-        .subscription(Elbey::subscription)
+        .subscription(Ilia::subscription)
         .run_with(app_factory)
 }
 
@@ -113,4 +113,80 @@ fn load_apps() -> Vec<Item> {
             }
         )
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use common::IliaMessage;
+    use iced::keyboard::{key::Named, Key};
+
+    use super::*;
+
+    static EMPTY_LOADER: fn() -> Vec<Item> = || vec![];
+
+    static TEST_DESKTOP_ENTRY_1: LazyLock<Item> =
+        std::sync::LazyLock::new(|| Item { desktop_entry: DesktopEntry::from_appid("test_app_id_1") });
+    static TEST_DESKTOP_ENTRY_2: LazyLock<Item> =
+        std::sync::LazyLock::new(|| Item { desktop_entry: DesktopEntry::from_appid("test_app_id_2") });
+    static TEST_DESKTOP_ENTRY_3: LazyLock<Item> =
+        std::sync::LazyLock::new(|| Item { desktop_entry: DesktopEntry::from_appid("test_app_id_3") });
+
+    static TEST_ENTRY_LOADER: fn() -> Vec<Item> = || {
+        vec![
+            TEST_DESKTOP_ENTRY_1.clone(),
+            TEST_DESKTOP_ENTRY_2.clone(),
+            TEST_DESKTOP_ENTRY_3.clone(),
+        ]
+    };
+
+    #[test]
+    fn test_default_app_launch() {
+        let test_launcher: fn(&Item) -> anyhow::Result<()> = |e| {
+            assert!(e.desktop_entry.appid == "test_app_id_1");
+            Ok(())
+        };
+
+        let (mut unit, _) = Ilia::new(IliaConfiguration {
+            item_loader: TEST_ENTRY_LOADER,
+            primary_action: test_launcher,
+        });
+
+        let _ = unit.update(IliaMessage::ModelLoaded(TEST_ENTRY_LOADER()));
+        let _ = unit.update(IliaMessage::ExecuteSelected());
+    }
+
+    #[test]
+    fn test_no_apps_try_launch() {
+        let test_launcher: fn(&Item) -> anyhow::Result<()> = |_e| {
+            assert!(false); // should never get here
+            Ok(())
+        };
+
+        let (mut unit, _) = Ilia::new(IliaConfiguration {
+            item_loader: TEST_ENTRY_LOADER,
+            primary_action: test_launcher,
+        });
+
+        let _ = unit.update(IliaMessage::ModelLoaded(EMPTY_LOADER()));
+        let _result = unit.update(IliaMessage::ExecuteSelected());
+    }
+
+    #[test]
+    fn test_app_navigation() {
+        let test_launcher: fn(&Item) -> anyhow::Result<()> = |e| {
+            assert!(e.desktop_entry.appid == "test_app_id_2");
+            Ok(())
+        };
+
+        let (mut unit, _) = Ilia::new(IliaConfiguration {
+            item_loader: TEST_ENTRY_LOADER,
+            primary_action: test_launcher,
+        });
+
+        let _ = unit.update(IliaMessage::ModelLoaded(TEST_ENTRY_LOADER()));
+        let _ = unit.update(IliaMessage::KeyEvent(Key::Named(Named::ArrowDown)));
+        let _ = unit.update(IliaMessage::KeyEvent(Key::Named(Named::ArrowDown)));
+        let _ = unit.update(IliaMessage::KeyEvent(Key::Named(Named::ArrowUp)));
+        let _ = unit.update(IliaMessage::ExecuteSelected());
+    }
 }
