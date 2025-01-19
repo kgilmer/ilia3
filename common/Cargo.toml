@@ -1,0 +1,10 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced.workspace = true
+iced_core.workspace = true
+iced_runtime.workspace = true
+anyhow.workspace = true
